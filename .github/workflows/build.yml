@@ -1,0 +1,58 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project DonDep.xcodeproj \
+            -scheme DonDep \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -quiet build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/DonDep.app Payload/
+          zip -qry DonDep.ipa Payload
+          ls -lh DonDep.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DonDep-ipa
+          path: DonDep.ipa
+
+      - name: Publish "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest -y --cleanup-tag || true
+          gh release create latest DonDep.ipa \
+            --title "Dọn Dẹp - bản mới nhất" \
+            --notes "Build #${{ github.run_number }} từ commit ${{ github.sha }}. Tải DonDep.ipa và cài bằng Sideloadly."
